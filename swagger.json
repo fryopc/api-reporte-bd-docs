@@ -1,396 +1,554 @@
 {
-    "openapi": "3.0.1",
-    "info": {
-        "title": "Optiplant API",
-        "description": "Documentación de la API de Optiplant",
-        "version": "v1"
+  "openapi": "3.0.1",
+  "info": {
+    "title": "API Reporte BD",
+    "description": "## Descripción general\n\nEsta API permite generar reportes de base de datos de forma **asíncrona** con soporte de paginado en la descarga.\n\n## Flujo de uso\n\nEl consumo de la API sigue un patrón de tres pasos:\n\n1. **Generar** — `POST /Reporte_BD/Generar` → Inicia el proceso y retorna un `X-Correlation-ID`\n2. **Consultar estado** — `GET /Reporte_BD/Estado` → Hacer polling hasta que el reporte esté listo\n3. **Descargar** — `GET /Reporte_BD/getPage/{pageNumber}` → Iterar páginas hasta obtener todos los datos\n\n## Autenticación\n\nTodos los endpoints requieren un token JWT en el header:\n```\nAuthorization: Bearer {tu_token}\n```\nPuedes obtener tu token a través del endpoint `POST /Token/login` usando tu `api_key`.\n\n## Headers requeridos\n\n| Header | Descripción |\n|---|---|\n| `Authorization` | Token JWT con prefijo Bearer |\n| `Origin` | Dominio de origen de la petición |\n| `X-Correlation-ID` | ID de correlación retornado al generar el reporte (requerido en Estado y getPage) |",
+    "version": "v1",
+    "contact": {
+      "name": "Equipo Optiplant"
+    }
+  },
+  "tags": [
+    {
+      "name": "Reporte",
+      "description": "Endpoints para la generación, consulta de estado y descarga paginada de reportes de base de datos."
     },
-    "paths": {
-        "/Reporte_BD/PreprocesarReporte": {
-            "post": {
-                "tags": [
-                    "Reporte"
-                ],
-                "summary": "Inicia el preprocesamiento automático de reportes para todas las plantas registradas en segundo plano.\r\nEl proceso se ejecuta de forma asíncrona sin bloquear la respuesta, permitiendo continuar con otras operaciones.",
-                "parameters": [
-                    {
-                        "name": "HorasDesatraso",
-                        "in": "query",
-                        "description": "Horas de desatraso para el preprocesamiento. Por defecto: 6",
-                        "schema": {
-                            "type": "integer",
-                            "format": "int32"
-                        }
-                    },
-                    {
-                        "name": "HorasTiempoReal",
-                        "in": "query",
-                        "description": "Horas de tiempo real para el preprocesamiento. Por defecto: 6",
-                        "schema": {
-                            "type": "integer",
-                            "format": "int32"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Preprocesamiento iniciado exitosamente en segundo plano"
-                    }
-                }
-            }
-        },
-        "/Reporte_BD/Generar": {
-            "post": {
-                "tags": [
-                    "Reporte"
-                ],
-                "summary": "genera el reporte de la base de datos",
-                "requestBody": {
-                    "description": "Parámetros para generar el reporte",
-                    "content": {
-                        "application/json-patch+json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/GenerarReporteRequest"
-                            }
-                        },
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/GenerarReporteRequest"
-                            }
-                        },
-                        "text/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/GenerarReporteRequest"
-                            }
-                        },
-                        "application/*+json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/GenerarReporteRequest"
-                            }
-                        }
-                    }
+    {
+      "name": "Token",
+      "description": "Endpoints para autenticación y validación de tokens JWT."
+    }
+  ],
+  "paths": {
+    "/Reporte_BD/Generar": {
+      "post": {
+        "tags": ["Reporte"],
+        "summary": "Iniciar generación de reporte",
+        "description": "Inicia la generación asíncrona de un reporte de base de datos.\n\n**Importante:** Este endpoint no retorna los datos directamente. Retorna un `X-Correlation-ID` en el header de respuesta que debes usar para:\n- Consultar el estado del procesamiento en `/Reporte_BD/Estado`\n- Descargar los datos página a página en `/Reporte_BD/getPage/{pageNumber}`\n\n**Restricciones de fecha:**\n- `startDate` no puede ser mayor al día siguiente de la fecha actual\n- `endDate` debe ser mayor o igual a `startDate`\n- La diferencia entre `startDate` y `endDate` no puede superar **30 días**",
+        "requestBody": {
+          "description": "Parámetros para generar el reporte",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerarReporteRequest"
+              },
+              "examples": {
+                "reporte_basico": {
+                  "summary": "Reporte básico de una línea",
+                  "value": {
+                    "plantCode": "BA04",
+                    "lineCode": "L01",
+                    "startDate": "2026-01-01",
+                    "endDate": "2026-01-31",
+                    "dca": false,
+                    "consolidated": false
+                  }
                 },
-                "responses": {
-                    "200": {
-                        "description": "Recursos obtenidos exitosamente"
-                    },
-                    "400": {
-                        "description": "Bad Request - Campos requeridos faltantes en el body",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ProblemDetails"
-                                }
-                            }
-                        }
-                    }
+                "reporte_todas_lineas": {
+                  "summary": "Reporte de todas las líneas con DCA",
+                  "value": {
+                    "plantCode": "BA04",
+                    "lineCode": "ALL",
+                    "startDate": "2026-01-01",
+                    "endDate": "2026-01-31",
+                    "dca": true,
+                    "consolidated": true
+                  }
                 }
+              }
             }
+          }
         },
-        "/Reporte_BD/Estado": {
-            "get": {
-                "tags": [
-                    "Reporte"
-                ],
-                "summary": "Consulta el estado del reporte generado por correlationId.",
-                "parameters": [
-                    {
-                        "name": "X-Correlation-ID",
-                        "in": "header",
-                        "description": "Correlation ID del header para validación.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ProblemDetails"
-                                }
-                            }
-                        }
-                    }
+        "responses": {
+          "200": {
+            "description": "Reporte iniciado exitosamente. El header `X-Correlation-ID` de la respuesta contiene el ID necesario para consultar el estado y descargar los datos.",
+            "headers": {
+              "X-Correlation-ID": {
+                "description": "Identificador único del proceso de generación del reporte. Úsalo en los endpoints de Estado y getPage.",
+                "schema": {
+                  "type": "string",
+                  "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
                 }
-            }
-        },
-        "/Reporte_BD/getPage/{pageNumber}": {
-            "get": {
-                "tags": [
-                    "Reporte"
-                ],
-                "summary": "Consulta el estado del reporte generado por correlationId.",
-                "parameters": [
-                    {
-                        "name": "pageNumber",
-                        "in": "path",
-                        "required": true,
-                        "schema": {
-                            "type": "integer",
-                            "format": "int32"
-                        }
-                    },
-                    {
-                        "name": "X-Correlation-ID",
-                        "in": "header",
-                        "description": "Correlation ID del header para validación.",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/ProblemDetails"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/Token/Validar_token": {
-            "post": {
-                "tags": [
-                    "Token"
-                ],
-                "parameters": [
-                    {
-                        "name": "id_user",
-                        "in": "query",
-                        "schema": {
-                            "type": "integer",
-                            "format": "int32"
-                        }
-                    },
-                    {
-                        "name": "token",
-                        "in": "query",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "name": "id_app",
-                        "in": "query",
-                        "schema": {
-                            "type": "integer",
-                            "format": "int32"
-                        }
-                    },
-                    {
-                        "name": "id_menu",
-                        "in": "query",
-                        "schema": {
-                            "type": "integer",
-                            "format": "int32"
-                        }
-                    },
-                    {
-                        "name": "navegador",
-                        "in": "query",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    }
-                }
-            }
-        },
-        "/Token/Validar_token_not_app": {
-            "post": {
-                "tags": [
-                    "Token"
-                ],
-                "parameters": [
-                    {
-                        "name": "id_user",
-                        "in": "query",
-                        "schema": {
-                            "type": "integer",
-                            "format": "int32"
-                        }
-                    },
-                    {
-                        "name": "token",
-                        "in": "query",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    }
-                }
-            }
-        },
-        "/Token/login": {
-            "post": {
-                "tags": [
-                    "Token"
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json-patch+json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/AuthJWTModel"
-                            }
-                        },
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/AuthJWTModel"
-                            }
-                        },
-                        "text/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/AuthJWTModel"
-                            }
-                        },
-                        "application/*+json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/AuthJWTModel"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "OK"
-                    }
-                }
-            }
-        }
-    },
-    "components": {
-        "schemas": {
-            "AuthJWTModel": {
-                "type": "object",
-                "properties": {
-                    "api_key": {
-                        "type": "string",
-                        "nullable": true
-                    },
-                    "name": {
-                        "type": "string",
-                        "nullable": true
-                    }
-                },
-                "additionalProperties": false
+              }
             },
-            "GenerarReporteRequest": {
-                "required": [
-                    "consolidated",
-                    "dca",
-                    "endDate",
-                    "lineCode",
-                    "plantCode",
-                    "startDate"
-                ],
-                "type": "object",
-                "properties": {
-                    "plantCode": {
-                        "minLength": 1,
-                        "type": "string",
-                        "description": "Código de la planta donde se hará la consulta.",
-                        "default": "BA04"
-                    },
-                    "lineCode": {
-                        "minLength": 1,
-                        "type": "string",
-                        "description": "Código de la línea donde se hará la consulta, o \"ALL\" para todas las líneas.",
-                        "default": "ALL"
-                    },
-                    "startDate": {
-                        "minLength": 1,
-                        "type": "string",
-                        "description": "Fecha de inicio del intervalo en formato YYYY-MM-DD, menor o igual al día siguiente de la fecha actual.",
-                        "default": "2026-01-01"
-                    },
-                    "endDate": {
-                        "minLength": 1,
-                        "type": "string",
-                        "description": "Fecha de fin del intervalo en formato YYYY-MM-DD, mayor o igual a StartDate y sin superar 30 días de diferencia.",
-                        "default": "2026-01-31"
-                    },
-                    "dca": {
-                        "type": "boolean",
-                        "description": "Booleano que indica si incluir Detalles, Causas y Acciones en el reporte.",
-                        "default": false
-                    },
-                    "consolidated": {
-                        "type": "boolean",
-                        "description": "Booleano que indica si consultar el consolidado.",
-                        "default": false
-                    }
-                },
-                "additionalProperties": false,
-                "description": "DTO para la solicitud de generación de reporte."
-            },
-            "ProblemDetails": {
-                "type": "object",
-                "properties": {
-                    "type": {
-                        "type": "string",
-                        "nullable": true
-                    },
-                    "title": {
-                        "type": "string",
-                        "nullable": true
-                    },
-                    "status": {
-                        "type": "integer",
-                        "format": "int32",
-                        "nullable": true
-                    },
-                    "detail": {
-                        "type": "string",
-                        "nullable": true
-                    },
-                    "instance": {
-                        "type": "string",
-                        "nullable": true
-                    }
-                },
-                "additionalProperties": {}
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Reporte en proceso",
+                  "correlationId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                  "timestamp": "2026-01-15T10:30:00Z"
+                }
+              }
             }
-        },
-        "securitySchemes": {
-            "Bearer": {
-                "type": "http",
-                "description": "Introduce tu token JWT en el siguiente formato: Bearer {token}",
-                "scheme": "bearer",
-                "bearerFormat": "JWT"
+          },
+          "400": {
+            "description": "Parámetros inválidos. Verifica que las fechas estén en formato correcto y no superen los 30 días de diferencia.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "type": "https://tools.ietf.org/html/rfc7231#section-6.5.1",
+                  "title": "Bad Request",
+                  "status": 400,
+                  "detail": "El rango de fechas no puede superar 30 días."
+                }
+              }
             }
+          },
+          "401": {
+            "description": "No autorizado. Token JWT inválido o expirado.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Token inválido o expirado."
+                }
+              }
+            }
+          }
         }
+      }
     },
-    "security": [
-        {
-            "Bearer": []
+    "/Reporte_BD/Estado": {
+      "get": {
+        "tags": ["Reporte"],
+        "summary": "Consultar estado del reporte",
+        "description": "Consulta el progreso de procesamiento de un reporte previamente generado.\n\n**Uso recomendado:** Hacer polling cada **3 a 5 segundos** hasta que el campo `porcentaje` llegue a `100` o el estado sea `Completado`.\n\nCuando el reporte esté listo, usa `/Reporte_BD/getPage/{pageNumber}` para descargar los datos.",
+        "parameters": [
+          {
+            "name": "X-Correlation-ID",
+            "in": "header",
+            "required": true,
+            "description": "ID de correlación retornado por el endpoint `/Reporte_BD/Generar`.",
+            "schema": {
+              "type": "string",
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Estado actual del proceso de generación.",
+            "content": {
+              "application/json": {
+                "examples": {
+                  "en_proceso": {
+                    "summary": "Reporte en procesamiento",
+                    "value": {
+                      "success": true,
+                      "correlationId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "estado": "Procesando",
+                      "porcentaje": 45,
+                      "totalPaginas": null,
+                      "timestamp": "2026-01-15T10:30:05Z"
+                    }
+                  },
+                  "completado": {
+                    "summary": "Reporte completado",
+                    "value": {
+                      "success": true,
+                      "correlationId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                      "estado": "Completado",
+                      "porcentaje": 100,
+                      "totalPaginas": 5,
+                      "timestamp": "2026-01-15T10:30:30Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "X-Correlation-ID no proporcionado o inválido.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                },
+                "example": {
+                  "title": "Bad Request",
+                  "status": 400,
+                  "detail": "El header X-Correlation-ID es requerido."
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No se encontró un reporte con el Correlation ID proporcionado. Puede haber expirado.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Reporte no encontrado o expirado."
+                }
+              }
+            }
+          }
         }
-    ],
-    "tags": [
-        {
-            "name": "Reporte",
-            "description": "Controlador para gestionar operaciones de actualización de parámetros PTS automáticos Malterias."
+      }
+    },
+    "/Reporte_BD/getPage/{pageNumber}": {
+      "get": {
+        "tags": ["Reporte"],
+        "summary": "Descargar página del reporte",
+        "description": "Descarga una página específica del reporte generado.\n\n**Requisito previo:** El reporte debe estar en estado `Completado` (porcentaje = 100) antes de llamar este endpoint.\n\n**Cómo iterar las páginas:**\n1. Inicia con `pageNumber = 1`\n2. Continúa incrementando hasta que `hayMasPaginas` sea `false`\n3. Cada página contiene un conjunto de filas del reporte\n\n> El reporte puede expirar después de un tiempo. Se recomienda descargar todas las páginas inmediatamente después de que el estado sea `Completado`.",
+        "parameters": [
+          {
+            "name": "pageNumber",
+            "in": "path",
+            "required": true,
+            "description": "Número de la página a descargar. Comienza en `1`.",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1,
+              "example": 1
+            }
+          },
+          {
+            "name": "X-Correlation-ID",
+            "in": "header",
+            "required": true,
+            "description": "ID de correlación retornado por el endpoint `/Reporte_BD/Generar`.",
+            "schema": {
+              "type": "string",
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Página de datos del reporte.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "correlationId": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+                  "paginaActual": 1,
+                  "totalPaginas": 5,
+                  "hayMasPaginas": true,
+                  "datos": [
+                    {
+                      "PAÍS": "CO",
+                      "PLANTA": "BA04",
+                      "MES": "January",
+                      "FECHA": "01/01/2026",
+                      "SEMANA": 1,
+                      "DÍA": "Thu",
+                      "TURNO": "Turno A",
+                      "LÍNEA": "L01",
+                      "TIPO FILA": "RESUMEN",
+                      "TT (HRS)": 8.5,
+                      "EPT (HRS)": 6.2
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Parámetros inválidos.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Reporte no encontrado o expirado.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "Reporte no encontrado o expirado."
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "El reporte aún no ha terminado de procesarse. Espera a que el estado sea `Completado` antes de descargar.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "El reporte aún está siendo procesado. Consulta el estado antes de descargar."
+                }
+              }
+            }
+          }
         }
-    ]
+      }
+    },
+    "/Reporte_BD/PreprocesarReporte": {
+      "post": {
+        "tags": ["Reporte"],
+        "summary": "Preprocesar reportes automáticamente",
+        "description": "Inicia el preprocesamiento automático de reportes para todas las plantas registradas en segundo plano.\n\nEste endpoint está pensado para uso interno o programado (schedulers). El proceso se ejecuta de forma **asíncrona** sin bloquear la respuesta.",
+        "parameters": [
+          {
+            "name": "HorasDesatraso",
+            "in": "query",
+            "description": "Cantidad de horas hacia atrás para el rango de preprocesamiento. Por defecto: `6`",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 6,
+              "example": 6
+            }
+          },
+          {
+            "name": "HorasTiempoReal",
+            "in": "query",
+            "description": "Cantidad de horas de tiempo real para el preprocesamiento. Por defecto: `6`",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 6,
+              "example": 6
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Preprocesamiento iniciado exitosamente en segundo plano.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "message": "Preprocesamiento iniciado en segundo plano."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Token/login": {
+      "post": {
+        "tags": ["Token"],
+        "summary": "Obtener token JWT",
+        "description": "Autentica al cliente y retorna un token JWT para usar en los demás endpoints.\n\nEl token debe enviarse en el header `Authorization` con el prefijo `Bearer`:\n```\nAuthorization: Bearer {token}\n```",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthJWTModel"
+              },
+              "example": {
+                "api_key": "tu-api-key-aqui",
+                "name": "nombre-del-sistema"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Autenticación exitosa. Retorna el token JWT.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                  "expiration": "2026-01-16T10:30:00Z"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Credenciales inválidas.",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": false,
+                  "message": "API Key inválida."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Token/Validar_token": {
+      "post": {
+        "tags": ["Token"],
+        "summary": "Validar token con contexto de aplicación",
+        "description": "Valida un token JWT verificando que el usuario tenga acceso a una aplicación y menú específico.",
+        "parameters": [
+          {
+            "name": "id_user",
+            "in": "query",
+            "required": true,
+            "description": "ID del usuario a validar.",
+            "schema": { "type": "integer", "format": "int32", "example": 123 }
+          },
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "description": "Token JWT a validar.",
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "id_app",
+            "in": "query",
+            "required": true,
+            "description": "ID de la aplicación.",
+            "schema": { "type": "integer", "format": "int32", "example": 1 }
+          },
+          {
+            "name": "id_menu",
+            "in": "query",
+            "required": true,
+            "description": "ID del menú dentro de la aplicación.",
+            "schema": { "type": "integer", "format": "int32", "example": 10 }
+          },
+          {
+            "name": "navegador",
+            "in": "query",
+            "description": "Identificador del navegador o cliente.",
+            "schema": { "type": "string", "example": "Chrome/120" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token válido.",
+            "content": {
+              "application/json": {
+                "example": { "success": true, "valid": true }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/Token/Validar_token_not_app": {
+      "post": {
+        "tags": ["Token"],
+        "summary": "Validar token sin contexto de aplicación",
+        "description": "Valida un token JWT únicamente por usuario, sin requerir contexto de aplicación o menú.",
+        "parameters": [
+          {
+            "name": "id_user",
+            "in": "query",
+            "required": true,
+            "description": "ID del usuario a validar.",
+            "schema": { "type": "integer", "format": "int32", "example": 123 }
+          },
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "description": "Token JWT a validar.",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token válido.",
+            "content": {
+              "application/json": {
+                "example": { "success": true, "valid": true }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "GenerarReporteRequest": {
+        "type": "object",
+        "required": ["plantCode", "lineCode", "startDate", "endDate", "dca", "consolidated"],
+        "description": "Parámetros requeridos para iniciar la generación de un reporte.",
+        "properties": {
+          "plantCode": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Código de la planta sobre la cual se generará el reporte.",
+            "example": "BA04"
+          },
+          "lineCode": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Código de la línea de producción. Usa `ALL` para incluir todas las líneas de la planta.",
+            "example": "ALL"
+          },
+          "startDate": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Fecha de inicio del intervalo en formato `YYYY-MM-DD`. No puede ser mayor al día siguiente de la fecha actual.",
+            "example": "2026-01-01"
+          },
+          "endDate": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Fecha de fin del intervalo en formato `YYYY-MM-DD`. Debe ser mayor o igual a `startDate` y la diferencia no puede superar 30 días.",
+            "example": "2026-01-31"
+          },
+          "dca": {
+            "type": "boolean",
+            "description": "Indica si el reporte debe incluir las columnas de **Detalle**, **Causas** y **Acciones** (DCA). Activa el procedimiento extendido.",
+            "default": false,
+            "example": false
+          },
+          "consolidated": {
+            "type": "boolean",
+            "description": "Indica si el reporte debe usar el modo consolidado, que agrupa información de múltiples fuentes.",
+            "default": false,
+            "example": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "AuthJWTModel": {
+        "type": "object",
+        "description": "Credenciales para autenticación mediante API Key.",
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "description": "Clave de API proporcionada por el equipo de Optiplant.",
+            "example": "tu-api-key-aqui",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "description": "Nombre identificador del sistema o cliente que consume la API.",
+            "example": "sistema-externo",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProblemDetails": {
+        "type": "object",
+        "description": "Estructura estándar de error RFC 7807.",
+        "properties": {
+          "type": { "type": "string", "nullable": true },
+          "title": { "type": "string", "nullable": true },
+          "status": { "type": "integer", "format": "int32", "nullable": true },
+          "detail": { "type": "string", "nullable": true },
+          "instance": { "type": "string", "nullable": true }
+        },
+        "additionalProperties": {}
+      }
+    },
+    "securitySchemes": {
+      "Bearer": {
+        "type": "http",
+        "description": "Token JWT obtenido desde `POST /Token/login`. Incluirlo en el header con el formato:\n```\nAuthorization: Bearer {token}\n```",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "security": [
+    { "Bearer": [] }
+  ]
 }
